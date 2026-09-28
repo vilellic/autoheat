@@ -1,0 +1,148 @@
+package control
+
+import (
+	"fmt"
+	"math"
+	"time"
+)
+
+// Input is everything one request tells us about a room.
+type Input struct {
+	Target   float64   `json:"target"`
+	RoomTemp float64   `json:"roomTemp"`
+	Observed PumpState `json:"observed"`
+	Policy   Policy    `json:"policy"`
+}
+
+// Decision is the answer for one request.
+type Decision struct {
+	Command   PumpState `json:"command"`
+	Changed   bool      `json:"changed"` // Command differs from the observed state
+	Reason    string    `json:"reason"`
+	Estimate  Estimate  `json:"estimate"`
+	Error     float64   `json:"error"`     // smoothed room temp − target
+	Predicted float64   `json:"predicted"` // Error projected Lookahead ahead
+}
+
+// Room is the controller's memory of one room between requests.
+// It is not safe for concurrent use; callers serialise access per room.
+type Room struct {
+	samples     []Sample
+	lastChange  time.Time // last change of the pump, commanded or observed
+	prevObs     PumpState
+	hasPrevObs  bool
+	lastCommand PumpState
+	hasCommand  bool
+	lastStep    int // direction of the last ladder step: +1 up, -1 down, 0 none
+
+	lastAt       time.Time
+	lastInput    Input
+	lastDecision Decision
+}
+
+// Decide works out what the pump should be set to now.
+func (r *Room) Decide(in Input, p Params, now time.Time) Decision {
+	var notes string
+	if r.noteObserved(in.Observed, now) {
+		notes = "pump changed outside autoheat"
+	}
+
+	r.samples = addSample(r.samples, Sample{At: now, Temp: in.RoomTemp}, p.Window)
+	est := estimate(r.samples, now, p.Window/3)
+	e := est.Level - in.Target
+	pe := e + est.SlopePerHour*p.Lookahead.Hours()
+
+	lad := BuildLadder(in.Policy, p)
+	start, fixed := lad.Fix(in.Observed)
+	if fixed != "" {
+		notes = join(notes, "policy fix: "+fixed)
+	}
+	pos := lad.Locate(start)
+
+	next, why := pos, ""
+	switch {
+	case pe < -p.ColdBand && lad.IsIdle(pos):
+		next, why = lad.Resume(), "too cold: resume heating"
+	case pe < -p.ColdBand && pos == lad.Top():
+		why = "too cold, already at max heat"
+	case pe < -p.ColdBand:
+		next, why = pos+1, "too cold: step up"
+	case pe > p.WarmBand && e >= p.IdleBand && lad.HasIdle() && !lad.IsIdle(pos):
+		next, why = 0, "clearly too warm: go idle"
+	case pe > p.WarmBand && pos == 0:
+		why = "too warm, already at min"
+	case pe > p.WarmBand:
+		next, why = pos-1, "too warm: step down"
+	default:
+		why = "within band: hold"
+	}
+
+	cmd := start
+	if next != pos {
+		dir := 1
+		if next < pos {
+			dir = -1
+		}
+		// A further step the same way waits until the whole estimate window
+		// comes after the last change, so the trend shows its effect.
+		dwell := p.Dwell
+		switch {
+		case math.Abs(pe) >= p.UrgentError:
+			dwell = p.UrgentDwell
+		case dir == r.lastStep:
+			dwell = max(p.Dwell, p.Window)
+		}
+		if wait := dwell - now.Sub(r.lastChange); !r.lastChange.IsZero() && wait > 0 {
+			why += fmt.Sprintf(", waiting %s", wait.Round(time.Second))
+		} else {
+			cmd = lad.Move(start, pos, next)
+			r.lastStep = dir
+		}
+	}
+
+	d := Decision{
+		Command:   cmd,
+		Changed:   !cmd.Same(in.Observed),
+		Reason:    join(notes, why),
+		Estimate:  est,
+		Error:     e,
+		Predicted: pe,
+	}
+	if d.Changed {
+		r.lastChange = now
+		r.lastCommand, r.hasCommand = cmd, true
+	}
+	r.lastAt, r.lastInput, r.lastDecision = now, in, d
+	return d
+}
+
+// noteObserved tracks the pump state between calls and reports whether it
+// changed in a way Autoheat did not command (by hand, another automation, or
+// a command only partly applied). Such a change restarts the dwell timer.
+func (r *Room) noteObserved(obs PumpState, now time.Time) bool {
+	external := r.hasPrevObs && !obs.Same(r.prevObs) &&
+		!(r.hasCommand && obs.Same(r.lastCommand))
+	if external {
+		r.lastChange = now
+		r.lastStep = 0
+	}
+	r.prevObs, r.hasPrevObs = obs, true
+	return external
+}
+
+// Status is a snapshot of a room for debugging.
+type Status struct {
+	LastCall     time.Time `json:"lastCall"`
+	LastChange   time.Time `json:"lastChange"`
+	LastInput    Input     `json:"lastInput"`
+	LastDecision Decision  `json:"lastDecision"`
+}
+
+func (r *Room) Status() Status {
+	return Status{
+		LastCall:     r.lastAt,
+		LastChange:   r.lastChange,
+		LastInput:    r.lastInput,
+		LastDecision: r.lastDecision,
+	}
+}

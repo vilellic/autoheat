@@ -1,0 +1,159 @@
+blueprint:
+  name: Autoheat room
+  description: >
+    Asks the Autoheat service what one room's heat pump should do, and
+    applies the answer. Create one automation from this blueprint per room.
+    Needs rest_command.autoheat (see rest_command.yaml).
+  domain: automation
+  input:
+    room:
+      name: Room name
+      description: Unique per room. Matches `rooms:` in the Autoheat config for per-room tuning.
+      selector:
+        text:
+    device:
+      name: Device
+      description: The heat pump model, as named under `devices:` in the Autoheat config.
+      selector:
+        text:
+    climate:
+      name: Heat pump
+      selector:
+        entity:
+          domain: climate
+    room_temp:
+      name: Room temperature sensor
+      selector:
+        entity:
+          domain: sensor
+    target_temp:
+      name: Target temperature
+      selector:
+        entity:
+          domain: [sensor, input_number]
+    heat_min:
+      name: Minimum set temperature
+      selector:
+        entity:
+          domain: input_number
+    heat_max:
+      name: Maximum set temperature
+      selector:
+        entity:
+          domain: input_number
+    max_fan:
+      name: Maximum fan speed
+      description: An input_select with options quiet, low, medium, medium_high, high.
+      selector:
+        entity:
+          domain: input_select
+    can_use_fan:
+      name: Fan only allowed
+      description: On when fan-only mode may be used, e.g. the fireplace is burning.
+      selector:
+        entity:
+          domain: [binary_sensor, input_boolean]
+    can_switch_off:
+      name: Off allowed
+      description: On when the heat pump may be switched off, e.g. on mild days.
+      selector:
+        entity:
+          domain: [binary_sensor, input_boolean]
+    apply:
+      name: Apply the answer
+      description: Turn off for a shadow run that only calls Autoheat and lets it log.
+      default: true
+      selector:
+        boolean:
+
+mode: single
+max_exceeded: silent
+
+variables:
+  room: !input room
+  device: !input device
+  climate: !input climate
+  room_temp: !input room_temp
+  target_temp: !input target_temp
+  heat_min: !input heat_min
+  heat_max: !input heat_max
+  max_fan: !input max_fan
+  can_use_fan: !input can_use_fan
+  can_switch_off: !input can_switch_off
+  apply: !input apply
+
+triggers:
+  # Autoheat rate-limits itself, so every sensor change may call it.
+  - trigger: state
+    entity_id: !input room_temp
+  # Nothing else calls while the room is steady; waiting steps need this.
+  - trigger: time_pattern
+    minutes: /5
+  - trigger: state
+    entity_id:
+      - !input target_temp
+      - !input heat_min
+      - !input heat_max
+      - !input max_fan
+    for:
+      seconds: 10
+  - trigger: state
+    entity_id:
+      - !input can_use_fan
+      - !input can_switch_off
+
+conditions:
+  - condition: template
+    value_template: "{{ states(room_temp) | is_number and states(target_temp) | is_number }}"
+
+actions:
+  - action: rest_command.autoheat
+    data:
+      room: "{{ room }}"
+      device: "{{ device }}"
+      target: "{{ states(target_temp) | float }}"
+      room_temp: "{{ states(room_temp) | float | round(2) }}"
+      hvac_mode: "{{ states(climate) }}"
+      set_temp: "{{ state_attr(climate, 'temperature') }}"
+      fan_mode: "{{ state_attr(climate, 'fan_mode') }}"
+      heat_min: "{{ states(heat_min) | float }}"
+      heat_max: "{{ states(heat_max) | float }}"
+      max_fan: "{{ states(max_fan) }}"
+      can_use_fan: "{{ is_state(can_use_fan, 'on') }}"
+      can_switch_off: "{{ is_state(can_switch_off, 'on') }}"
+    response_variable: r
+  # A rejected request (bad input, unavailable heat pump) changes nothing.
+  - condition: template
+    value_template: "{{ apply and r.status == 200 }}"
+  # Apply only what differs, in order: mode, set temperature, fan.
+  - if:
+      - condition: template
+        value_template: "{{ r.content.HVAC_mode != states(climate) }}"
+    then:
+      - action: climate.set_hvac_mode
+        target:
+          entity_id: "{{ climate }}"
+        data:
+          hvac_mode: "{{ r.content.HVAC_mode }}"
+  - if:
+      - condition: template
+        value_template: >-
+          {{ r.content.HVAC_mode == 'heat' and
+             r.content.Temperature | int != state_attr(climate, 'temperature') | int(0) }}
+    then:
+      - action: climate.set_temperature
+        target:
+          entity_id: "{{ climate }}"
+        data:
+          temperature: "{{ r.content.Temperature | int }}"
+  - if:
+      - condition: template
+        value_template: >-
+          {{ r.content.HVAC_mode != 'off' and
+             r.content.Fan_mode != state_attr(climate, 'fan_mode') }}
+    then:
+      - action: climate.set_fan_mode
+        target:
+          entity_id: "{{ climate }}"
+        data:
+          fan_mode: "{{ r.content.Fan_mode }}"

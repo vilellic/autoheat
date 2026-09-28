@@ -1,0 +1,19 @@
+services:
+  autoheat:
+    build: .
+    container_name: autoheat
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Helsinki
+    ports:
+      - "8090:8080"
+    volumes:
+      # Copy config.example.yaml to config.yaml first. Edit it and restart
+      # the container to apply changes; no rebuild needed. If the file is
+      # missing, compose stops with an error instead of creating a directory.
+      - type: bind
+        source: ./config.yaml
+        target: /config/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false

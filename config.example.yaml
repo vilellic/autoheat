@@ -1,0 +1,44 @@
+# Autoheat configuration. Copy to config.yaml and adjust.
+# Unknown keys are errors, so typos are caught at startup.
+
+# Tuning for all rooms. Every key is optional; the values shown are the
+# built-in defaults.
+defaults:
+  windowMinutes: 30      # how much history the temperature estimate uses
+  lookaheadMinutes: 20   # how far ahead the trend is projected
+  coldBand: 0.2          # °C below target (predicted) before stepping heat up
+  warmBand: 0.3          # °C above target (predicted) before stepping heat down
+  idleBand: 0.5          # °C above target (now) to go straight to fan only / off
+  dwellMinutes: 15       # minimum time between steps
+  urgentDwellMinutes: 5  # ...when the predicted error is at least urgentError
+  urgentError: 0.5
+  resumeSetTemp: 23      # set temperature when heating resumes (kept within heatMin..heatMax)
+  baseFan: low           # fan while the set temperature is below heatMax
+  circulationFan: medium # fan in fan-only mode
+
+# Heat pump models. The request's "device" field picks one (case-insensitive).
+# Map every generic speed (quiet, low, medium, medium_high, high) to the
+# fan_mode name Home Assistant shows for the climate entity.
+devices:
+  mitsubishi: # via Sensibo
+    fanModes:
+      quiet: quiet
+      low: low
+      medium: medium
+      medium_high: medium_high
+      high: high
+  gree:
+    fanModes:
+      quiet: low
+      low: medium low
+      medium: medium
+      medium_high: medium high
+      high: high
+
+# Per-room overrides of the defaults, keyed by the request's "room" field.
+# Rooms not listed here use the defaults.
+rooms:
+  olohuone:
+    baseFan: low
+  mokki:
+    dwellMinutes: 20

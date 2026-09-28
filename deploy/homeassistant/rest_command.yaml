@@ -1,0 +1,22 @@
+# Add to configuration.yaml (or a package). One command serves every room;
+# the blueprint passes the values as variables.
+rest_command:
+  autoheat:
+    url: "http://AUTOHEAT_HOST:8090/"
+    method: POST
+    content_type: "application/json"
+    payload: >-
+      {
+        "room": {{ room | tojson }},
+        "device": {{ device | tojson }},
+        "targetIndoorTemp": {{ target | tojson }},
+        "currentIndoorTemp": {{ room_temp | tojson }},
+        "currentStateHvacMode": {{ hvac_mode | tojson }},
+        "currentStateTemperature": {{ set_temp | tojson }},
+        "currentStateFanMode": {{ fan_mode | tojson }},
+        "heatMin": {{ heat_min | tojson }},
+        "heatMax": {{ heat_max | tojson }},
+        "maxAllowedFanSpeed": {{ max_fan | tojson }},
+        "canUseFan": {{ can_use_fan | tojson }},
+        "canBeSwitchedOff": {{ can_switch_off | tojson }}
+      }
