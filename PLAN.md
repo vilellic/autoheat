@@ -1,6 +1,4 @@
-# Autoheat v2 — Plan
-
-A fresh Go rewrite, based on [CORE.md](CORE.md).
+# Autoheat — Plan
 
 **Fixed decisions**
 - Called from Home Assistant over HTTP, with the same response shape as today.
