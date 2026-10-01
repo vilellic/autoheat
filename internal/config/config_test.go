@@ -124,3 +124,31 @@ func TestLoadDirectoryExplains(t *testing.T) {
 		t.Errorf("err = %v, want an explanation that the path is a directory", err)
 	}
 }
+
+func TestFanFrom(t *testing.T) {
+	def := control.DefaultParams()
+	cases := []struct {
+		yaml string
+		want control.FanCurve
+		ok   bool
+	}{
+		{"{}", def.FanFrom, true},
+		{"{fanFrom: {medium: 24}}", control.FanCurve{control.Medium: 24}, true}, // replaces the whole curve
+		{"{fanFrom: {Medium High: 25, high: 26}}", control.FanCurve{control.MediumHigh: 25, control.High: 26}, true},
+		{"{fanFrom: {}}", control.FanCurve{}, true}, // fan only at max
+		{"{fanFrom: {medium: 25, medium_high: 23}}", def.FanFrom, false},
+		{"{fanFrom: {turbo: 23}}", def.FanFrom, false},
+		{"{fanFrom: {medium_high: 24, Medium-High: 25}}", def.FanFrom, false},
+		{"{fanFrom: {medium: 0}}", def.FanFrom, false},
+	}
+	for _, c := range cases {
+		p, err := ApplyTunables([]byte(c.yaml), def)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err %v, want ok=%v", c.yaml, err, c.ok)
+			continue
+		}
+		if c.ok && p.FanFrom != c.want {
+			t.Errorf("%s: curve %v, want %v", c.yaml, p.FanFrom, c.want)
+		}
+	}
+}

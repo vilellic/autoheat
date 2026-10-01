@@ -16,8 +16,13 @@ type harness struct {
 	in  Input
 }
 
+// newHarness uses a fan curve that keeps the fan at base below the max set
+// temperature, so most steps here are set temperature steps. The ladder's
+// shape is tested in ladder_test.go.
 func newHarness(t *testing.T, pump PumpState) *harness {
-	return &harness{t: t, p: DefaultParams(), now: t0, in: Input{
+	p := DefaultParams()
+	p.FanFrom = FanCurve{}
+	return &harness{t: t, p: p, now: t0, in: Input{
 		Target:   21.5,
 		RoomTemp: 21.5,
 		Observed: pump,
@@ -88,7 +93,32 @@ func TestUrgentDwellWhenFarFromTarget(t *testing.T) {
 	h.expect(d, heat(25, Low), "step up")
 }
 
-func TestFanGoesUpOnlyAtMaxSetTemp(t *testing.T) {
+func TestStepsFollowFanCurve(t *testing.T) {
+	cases := []struct {
+		from, want PumpState
+		roomTemp   float64
+	}{
+		// Up along the ceiling...
+		{heat(22, Low), heat(23, Low), 21.1},
+		{heat(23, Low), heat(23, Medium), 21.1},
+		{heat(23, Medium), heat(24, Medium), 21.1},
+		{heat(24, Low), heat(24, Medium), 21.1},
+		// ...and down along the base fan.
+		{heat(24, Medium), heat(24, Low), 21.9},
+		{heat(24, Low), heat(23, Low), 21.9},
+	}
+	for _, c := range cases {
+		h := newHarness(t, c.from)
+		h.p.FanFrom = FanCurve{Medium: 23, MediumHigh: 26}
+		h.history(constant(c.roomTemp))
+		d := h.call(0, c.roomTemp)
+		if d.Command != c.want {
+			t.Errorf("from %v at %.1f: %v, want %v (%s)", c.from, c.roomTemp, d.Command, c.want, d.Reason)
+		}
+	}
+}
+
+func TestFanGoesUpAtMaxSetTemp(t *testing.T) {
 	h := newHarness(t, heat(26, Low))
 	h.history(constant(21.1))
 	h.expect(h.call(0, 21.1), heat(26, Medium), "step up")

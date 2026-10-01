@@ -57,32 +57,30 @@ func (r *Room) Decide(in Input, p Params, now time.Time) Decision {
 	if fixed != "" {
 		notes = join(notes, "policy fix: "+fixed)
 	}
-	pos := lad.Locate(start)
+	idle := start.Mode != Heat
+	up, canUp := lad.Up(start)
+	down, canDown := lad.Down(start)
 
-	next, why := pos, ""
+	next, dir, why := start, 0, ""
 	switch {
-	case pe < -p.ColdBand && lad.IsIdle(pos):
-		next, why = lad.Resume(), "too cold: resume heating"
-	case pe < -p.ColdBand && pos == lad.Top():
+	case pe < -p.ColdBand && idle:
+		next, dir, why = up, 1, "too cold: resume heating"
+	case pe < -p.ColdBand && !canUp:
 		why = "too cold, already at max heat"
 	case pe < -p.ColdBand:
-		next, why = pos+1, "too cold: step up"
-	case pe > p.WarmBand && e >= p.IdleBand && lad.HasIdle() && !lad.IsIdle(pos):
-		next, why = 0, "clearly too warm: go idle"
-	case pe > p.WarmBand && pos == 0:
+		next, dir, why = up, 1, "too cold: step up"
+	case pe > p.WarmBand && e >= p.IdleBand && lad.HasIdle() && !idle:
+		next, dir, why = lad.Idle(start), -1, "clearly too warm: go idle"
+	case pe > p.WarmBand && !canDown:
 		why = "too warm, already at min"
 	case pe > p.WarmBand:
-		next, why = pos-1, "too warm: step down"
+		next, dir, why = down, -1, "too warm: step down"
 	default:
 		why = "within band: hold"
 	}
 
 	cmd := start
-	if next != pos {
-		dir := 1
-		if next < pos {
-			dir = -1
-		}
+	if dir != 0 {
 		// A further step the same way waits until the whole estimate window
 		// comes after the last change, so the trend shows its effect.
 		dwell := p.Dwell
@@ -95,7 +93,7 @@ func (r *Room) Decide(in Input, p Params, now time.Time) Decision {
 		if wait := dwell - now.Sub(r.lastChange); !r.lastChange.IsZero() && wait > 0 {
 			why += fmt.Sprintf(", waiting %s", wait.Round(time.Second))
 		} else {
-			cmd = lad.Move(start, pos, next)
+			cmd = next
 			r.lastStep = dir
 		}
 	}

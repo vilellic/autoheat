@@ -143,8 +143,44 @@ type Params struct {
 	UrgentDwell    time.Duration // minimum time between steps when far from target
 	UrgentError    float64       // |predicted error| at which UrgentDwell applies
 	ResumeSetTemp  int           // set temperature used when heating resumes from idle
-	BaseFan        Fan           // fan speed while the set temperature is below max
+	BaseFan        Fan           // fan speed at the bottom of the ladder
 	CirculationFan Fan           // fan speed in fan-only mode
+	FanFrom        FanCurve      // fan ceiling by set temperature, for steps up
+}
+
+// FanCurve gives, for each fan speed, the set temperature from which a step
+// up may use that fan (see Ladder). Zero means not given: the speed then
+// starts with the next faster speed that is given, or at the max set
+// temperature. Speeds at or below the base fan are ignored.
+type FanCurve [High + 1]int
+
+// From returns the set temperature from which fan f is used, given the
+// highest set temperature allowed.
+func (c FanCurve) From(f Fan, maxSetTemp int) int {
+	for ; f <= High; f++ {
+		if c[f] != 0 {
+			return min(c[f], maxSetTemp)
+		}
+	}
+	return maxSetTemp
+}
+
+// Validate checks that the curve never steps down: a faster fan never starts
+// at a lower set temperature than a slower one.
+func (c FanCurve) Validate() error {
+	prev := Fan(-1)
+	for f, t := range c {
+		switch {
+		case t < 0:
+			return fmt.Errorf("fan curve: negative set temperature %d for %s", t, Fan(f))
+		case t == 0:
+			continue
+		case prev >= 0 && t < c[prev]:
+			return fmt.Errorf("fan curve: %s from %d is below %s from %d", Fan(f), t, prev, c[prev])
+		}
+		prev = Fan(f)
+	}
+	return nil
 }
 
 // DefaultParams are the starting values; tune them with the simulation.
@@ -161,6 +197,7 @@ func DefaultParams() Params {
 		ResumeSetTemp:  23,
 		BaseFan:        Low,
 		CirculationFan: Medium,
+		FanFrom:        FanCurve{Medium: 23, MediumHigh: 26},
 	}
 }
 
@@ -183,5 +220,5 @@ func (p Params) Validate() error {
 	case p.CirculationFan < Quiet || p.CirculationFan > High:
 		return fmt.Errorf("invalid circulation fan %v", p.CirculationFan)
 	}
-	return nil
+	return p.FanFrom.Validate()
 }

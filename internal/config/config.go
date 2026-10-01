@@ -72,6 +72,9 @@ type tunables struct {
 	ResumeSetTemp      *int     `yaml:"resumeSetTemp"`
 	BaseFan            *string  `yaml:"baseFan"`
 	CirculationFan     *string  `yaml:"circulationFan"`
+	// FanFrom replaces the whole fan curve; speeds left out step up only at
+	// the max set temperature (see control.FanCurve).
+	FanFrom map[string]int `yaml:"fanFrom"`
 }
 
 // Load reads and validates a config file.
@@ -184,5 +187,29 @@ func (t tunables) apply(p control.Params) (control.Params, error) {
 	if err := fan(&p.CirculationFan, t.CirculationFan, "circulationFan"); err != nil {
 		return p, err
 	}
+	if t.FanFrom != nil {
+		curve, err := fanCurve(t.FanFrom)
+		if err != nil {
+			return p, err
+		}
+		p.FanFrom = curve
+	}
 	return p, p.Validate()
+}
+
+func fanCurve(m map[string]int) (control.FanCurve, error) {
+	var c control.FanCurve
+	for name, setTemp := range m {
+		f, ok := control.ParseFan(name)
+		switch {
+		case !ok:
+			return c, fmt.Errorf("fanFrom: unknown fan speed %q", name)
+		case c[f] != 0:
+			return c, fmt.Errorf("fanFrom: %s given twice", f)
+		case setTemp <= 0:
+			return c, fmt.Errorf("fanFrom: %s: set temperature must be positive, got %d", f, setTemp)
+		}
+		c[f] = setTemp
+	}
+	return c, nil
 }

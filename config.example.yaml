@@ -13,8 +13,17 @@ defaults:
   urgentDwellMinutes: 5  # ...when the predicted error is at least urgentError
   urgentError: 0.5
   resumeSetTemp: 23      # set temperature when heating resumes (kept within heatMin..heatMax)
-  baseFan: low           # fan while the set temperature is below heatMax
+  baseFan: low           # fan at the bottom, and where steps down bring it first
   circulationFan: medium # fan in fan-only mode
+  # Fan curve: the set temperature from which a step up may use each fan
+  # speed. Heating steps up the fan to the curve before raising the set
+  # temperature, and steps down the fan to baseFan before lowering it.
+  # A speed left out starts with the next faster one listed, or at heatMax;
+  # maxAllowedFanSpeed always caps it. A room's fanFrom replaces the whole
+  # curve, and "fanFrom: {}" keeps the fan at baseFan until heatMax.
+  fanFrom:
+    medium: 23
+    medium_high: 26
 
 # Heat pump models. The request's "device" field picks one (case-insensitive).
 # Map every generic speed (quiet, low, medium, medium_high, high) to the

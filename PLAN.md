@@ -108,6 +108,34 @@ This single structure covers several of today's rules:
 
 The *base fan* (`low` above) is set per room in config.
 
+*Changed after v2 was in use:* keeping the fan at base up to `heatMax` meant a
+room needing a set temperature of 24 ran at 24/low when 23/medium would
+spread the heat better. The single list became steps through set
+temperature × fan, with a per-room **fan curve** (`fanFrom`) giving the
+highest fan a step up uses at each set temperature:
+
+```
+ fan \ set    20   21   22   23   24   25   26      fanFrom: {medium: 23, medium_high: 26}
+ high                                       ●
+ medium_high                                ●
+ medium                     ●    ●    ●    ●
+ low          ●    ●    ●    ●    ●    ●    ●
+```
+
+- **Up:** raise the fan while it is below the curve, otherwise the set
+  temperature. At `heatMax` the curve is `maxAllowedFanSpeed`.
+- **Down:** lower the fan while it is above base, otherwise the set
+  temperature, then go idle. So the fan is removed first when there is too
+  much heat, and the way down is not the way up.
+- Every step changes one of set temperature and fan by one notch, so every
+  step changes the heat the same way, whatever the pump's characteristics.
+- A curve left empty gives the original ladder, apart from the way down.
+- *Why the way down differs:* with the same path both ways, the simulation
+  settled between levels such as 24/medium and 25/medium, whose output
+  straddles the room's need, and oscillated (about twice the changes). Going
+  down through 25/low and 24/low adds levels in between, and changes fell back
+  to the original ladder's level.
+
 ### 3.2 Estimating the room temperature
 
 For each room, keep the **samples from the last N minutes** (time, temperature).
@@ -134,8 +162,8 @@ the zones, the direction check, velocity, and the dead band.
    longer allowed. A pump that is off stays off while off is allowed, even
    if fan only becomes allowed too (as in v1). Fan only is preferred only
    when going idle from heat.
-2. **Locate** the (fixed) state on the ladder and continue from there, so a
-   fix and a step can happen in the same call.
+2. **Continue from the (fixed) state,** so a fix and a step can happen in
+   the same call.
 3. **Want:**
    - `ê < −coldBand` → one step **up**
    - `ê > +warmBand` → one step **down**
@@ -154,8 +182,8 @@ the zones, the direction check, velocity, and the dead band.
      (`window`), so the trend reflects the previous step before taking
      another. *Added after the simulation:* without it, the lag between pump
      and room caused double steps and roughly twice as many changes.
-   - Steps from a state off the ladder (e.g. a fan set by hand) never move
-     the fan against the step: up never lowers it, down never raises it.
+   - Steps from a state off the curve (e.g. a fan set by hand) follow the
+     same rules, so up never lowers the fan and down never raises it.
 6. **Hold** returns the observed state unchanged, so there are no pointless
    writes.
 7. **Fan in fan_only mode** is the room's `circulationFan`, capped by the
@@ -195,6 +223,7 @@ defaults:            # starting values; tune using the simulation and replay
   resumeSetTemp: 23  # clamped into heatMin..heatMax
   baseFan: low
   circulationFan: medium
+  fanFrom: {medium: 23, medium_high: 26}
 
 devices:             # generic speed → the device's own fan-mode name
   mitsubishi:
@@ -236,7 +265,7 @@ rooms:               # optional per-room overrides of `defaults`
 ```
 cmd/autoheat/main.go      wiring: config, HTTP server, graceful shutdown
 internal/control/         pure logic, no I/O
-  ladder.go               build the ladder from policy; locate the observed state
+  ladder.go               steps up and down within the policy, along the fan curve
   estimate.go             time-based level and slope from samples
   decide.go               Decide(state, input, now) → (output, state, reason)
 internal/config/          load and validate the YAML
@@ -252,11 +281,12 @@ deploy/                   Dockerfile, compose, HA blueprint and rest_command exa
 
 ## 7. Testing
 
-- **Unit:** ladder building and locating, the estimator with irregular
+- **Unit:** ladder steps and paths, the estimator with irregular
   samples, and a table of `Decide` cases.
 - **Invariants,** checked for every generated input:
   - the output is always inside the policy limits
   - at most one ladder step per dwell period, except for the defined shortcuts
+  - every heat step changes one of set temperature and fan by one notch
 - **Scenarios** with the room simulation: cold start, target raised, fireplace
   lit, a mild day, a manual override, and two rooms at once. Check that each
   settles without oscillating.
