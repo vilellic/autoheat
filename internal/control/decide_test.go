@@ -198,6 +198,15 @@ func TestResumeFromIdle(t *testing.T) {
 	h.expect(h.call(0, 21.1), heat(23, Low), "resume heating")
 }
 
+func TestStepAfterResumeWaitsOnlyDwell(t *testing.T) {
+	h := newHarness(t, PumpState{Mode: FanOnly, SetTemp: 20, Fan: Medium})
+	h.history(constant(21.1))
+	h.expect(h.call(0, 21.1), heat(23, Low), "resume heating")
+	// Still too cold, not urgent: the next step comes after the dwell.
+	h.expect(h.call(10*time.Minute, 21.1), heat(23, Low), "waiting 5m0s")
+	h.expect(h.call(5*time.Minute, 21.1), heat(24, Low), "step up")
+}
+
 func TestTrendPreventsPush(t *testing.T) {
 	// 0.25 below target but rising 0.9 °C/h: predicted to reach it, so hold.
 	h := newHarness(t, heat(24, Low))

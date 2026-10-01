@@ -105,6 +105,11 @@ func (r *Room) Decide(in Input, p Params, now time.Time) Decision {
 		} else {
 			cmd = next
 			r.lastStep = dir
+			if idle {
+				// Resuming jumps to a baseline rather than stepping one
+				// notch, so a step up from it waits only the dwell.
+				r.lastStep = 0
+			}
 		}
 	}
 

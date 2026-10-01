@@ -170,7 +170,11 @@ the zones, the direction check, velocity, and the dead band.
    - otherwise **hold**
 4. **Shortcuts:**
    - When idle and wanting heat, go straight to the **resume level**
-     (`resumeSetTemp`, base fan).
+     (`resumeSetTemp`, base fan). A step up from it waits only the normal
+     dwell, not a full window. *Changed after the fan curve:* the resume
+     level and the step after it (23/low, 23/medium) can both give almost
+     no heat, and waiting a window between them let the room dip too far
+     on the evening of `mild-day`.
    - When clearly too warm (`e ≥ idleBand`) and idle is allowed, go straight to
      **idle**. This is the fireplace / sunny-day case.
 5. **Dwell:**
