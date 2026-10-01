@@ -175,12 +175,22 @@ func (r Result) After(from time.Duration) Stats {
 
 // ModeTime returns how long the pump spent in a mode from a given time on.
 func (r Result) ModeTime(m control.Mode, from time.Duration) time.Duration {
+	return r.time(from, func(s control.PumpState) bool { return s.Mode == m })
+}
+
+// HeatFanTime returns how long the pump spent heating at a fan speed from a
+// given time on.
+func (r Result) HeatFanTime(f control.Fan, from time.Duration) time.Duration {
+	return r.time(from, func(s control.PumpState) bool { return s.Mode == control.Heat && s.Fan == f })
+}
+
+func (r Result) time(from time.Duration, match func(control.PumpState) bool) time.Duration {
 	var total time.Duration
 	for i, p := range r.Points {
 		if p.At < from || i+1 == len(r.Points) {
 			continue
 		}
-		if p.Decision.Command.Mode == m {
+		if match(p.Decision.Command) {
 			total += r.Points[i+1].At - p.At
 		}
 	}

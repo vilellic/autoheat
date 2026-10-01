@@ -80,9 +80,10 @@ and can change at any time:
 3. **Hold when close and stable.** If the error is small and the room
    temperature is not moving, change nothing.
 4. **Too cold → add heat:** make sure the mode is heat and raise the set point.
-   **Prefer raising the set point over raising the fan speed**, because the fan
-   is noisier. The fan goes up once the set point is at its maximum or the gap
-   is large.
+   **Keep the fan quiet at low set points**, because the fan is noisier. The
+   fan goes up with the set point along a configured curve (for example,
+   medium from a set point of 23), and it is the first thing lowered when
+   there is too much heat.
 5. **Too warm → remove heat,** using the gentlest allowed option first:
    switch to fan only if allowed, otherwise off if allowed, otherwise lower the
    set point and the fan speed.

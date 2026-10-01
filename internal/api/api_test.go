@@ -15,7 +15,11 @@ import (
 	"github.com/vilellic/autoheat/internal/config"
 )
 
+// The tests step from 24/low, so a fan curve that keeps the fan at base below
+// max set temperature makes every step below max a set temperature step.
 const testConfig = `
+defaults:
+  fanFrom: {}
 devices:
   mitsubishi:
     fanModes: {quiet: quiet, low: low, medium: medium, medium_high: medium_high, high: high}

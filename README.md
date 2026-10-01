@@ -11,21 +11,30 @@ sensor in charge instead. On each call it decides the pump's **mode**,
   (e.g. fireplace burning, mild weather)
 - Few, calm changes: it acts on the room's trend, not just its current
   temperature
-- Quiet first: it raises the set temperature before the fan, and lowers the
-  fan first
+- Quiet first: the fan stays at a quiet base speed at low set temperatures,
+  steps up along a configurable curve, and is the first thing lowered
 - Respects limits: set temperature range, maximum fan speed, manual changes
 - Any number of rooms and heat pump models from one small service
 - A single Go binary with one YAML config file, in a ~10 MB Docker image
 
 ## How it works
 
-Each room's allowed settings form one ordered ladder, from least to most heat:
+Heating moves one step at a time through set temperature × fan, with idle
+(fan only or off, when allowed) below. A fan curve (`fanFrom`) caps the fan
+by set temperature:
 
 ```
-idle             fan only or off, when allowed
-heat 20 … 26     set temperature first, at a quiet base fan
-heat 26 + fan    then the fan, up to the allowed maximum
+fan \ set    20   21   22   23   24   25   26
+high                                       ●
+medium_high                                ●
+medium                     ●    ●    ●    ●
+low          ●    ●    ●    ●    ●    ●    ●
 ```
+
+A step up raises the fan up to the curve, then the set temperature
+(23/low → 23/medium → 24/medium). A step down lowers the fan to the base
+speed first, then the set temperature (24/medium → 24/low → 23/low). Each
+step changes one of them by one notch, always within the allowed limits.
 
 Autoheat estimates the room temperature and its trend from recent readings.
 It projects the trend a little ahead and moves one step up or down when the

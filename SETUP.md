@@ -224,7 +224,8 @@ under `rooms:` in `config.yaml`:
 rooms:
   olohuone:
     dwellMinutes: 20      # wait longer between changes
-    baseFan: quiet        # quieter while the set temperature has headroom
+    baseFan: quiet        # quieter at low set temperatures
+    fanFrom: {medium: 24} # medium only from a set temperature of 24
 ```
 
 [config.example.yaml](config.example.yaml) explains every value. To see how a

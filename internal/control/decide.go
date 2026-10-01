@@ -33,7 +33,8 @@ type Room struct {
 	hasPrevObs  bool
 	lastCommand PumpState
 	hasCommand  bool
-	lastStep    int // direction of the last ladder step: +1 up, -1 down, 0 none
+	lastStep    int     // direction of the last ladder step: +1 up, -1 down, 0 none
+	lastPredict float64 // predicted error when the pump last changed
 
 	lastAt       time.Time
 	lastInput    Input
@@ -57,37 +58,44 @@ func (r *Room) Decide(in Input, p Params, now time.Time) Decision {
 	if fixed != "" {
 		notes = join(notes, "policy fix: "+fixed)
 	}
-	pos := lad.Locate(start)
+	idle := start.Mode != Heat
+	up, canUp := lad.Up(start)
+	down, canDown := lad.Down(start)
 
-	next, why := pos, ""
+	next, dir, why := start, 0, ""
 	switch {
-	case pe < -p.ColdBand && lad.IsIdle(pos):
-		next, why = lad.Resume(), "too cold: resume heating"
-	case pe < -p.ColdBand && pos == lad.Top():
+	case pe < -p.ColdBand && idle:
+		next, dir, why = up, 1, "too cold: resume heating"
+	case pe < -p.ColdBand && !canUp:
 		why = "too cold, already at max heat"
 	case pe < -p.ColdBand:
-		next, why = pos+1, "too cold: step up"
-	case pe > p.WarmBand && e >= p.IdleBand && lad.HasIdle() && !lad.IsIdle(pos):
-		next, why = 0, "clearly too warm: go idle"
-	case pe > p.WarmBand && pos == 0:
+		next, dir, why = up, 1, "too cold: step up"
+	case pe > p.WarmBand && e >= p.IdleBand && lad.HasIdle() && !idle:
+		next, dir, why = lad.Idle(start), -1, "clearly too warm: go idle"
+	case pe > p.WarmBand && !canDown:
 		why = "too warm, already at min"
 	case pe > p.WarmBand:
-		next, why = pos-1, "too warm: step down"
+		next, dir, why = down, -1, "too warm: step down"
 	default:
 		why = "within band: hold"
 	}
 
 	cmd := start
-	if next != pos {
-		dir := 1
-		if next < pos {
-			dir = -1
-		}
+	if dir != 0 {
 		// A further step the same way waits until the whole estimate window
 		// comes after the last change, so the trend shows its effect.
+		//
+		// A large predicted error shortens the wait, but only on new
+		// evidence: the room is that cold now, or the prediction has got
+		// worse since the last change. Until the trend shows a step, the
+		// prediction still says what it said when the step was taken, and
+		// stepping on it again sweeps the whole ladder before the room
+		// responds.
+		urgent := math.Abs(pe) >= p.UrgentError &&
+			(e <= -p.UrgentError || float64(dir)*(r.lastPredict-pe) > 0)
 		dwell := p.Dwell
 		switch {
-		case math.Abs(pe) >= p.UrgentError:
+		case urgent:
 			dwell = p.UrgentDwell
 		case dir == r.lastStep:
 			dwell = max(p.Dwell, p.Window)
@@ -95,8 +103,13 @@ func (r *Room) Decide(in Input, p Params, now time.Time) Decision {
 		if wait := dwell - now.Sub(r.lastChange); !r.lastChange.IsZero() && wait > 0 {
 			why += fmt.Sprintf(", waiting %s", wait.Round(time.Second))
 		} else {
-			cmd = lad.Move(start, pos, next)
+			cmd = next
 			r.lastStep = dir
+			if idle {
+				// Resuming jumps to a baseline rather than stepping one
+				// notch, so a step up from it waits only the dwell.
+				r.lastStep = 0
+			}
 		}
 	}
 
@@ -109,7 +122,7 @@ func (r *Room) Decide(in Input, p Params, now time.Time) Decision {
 		Predicted: pe,
 	}
 	if d.Changed {
-		r.lastChange = now
+		r.lastChange, r.lastPredict = now, pe
 		r.lastCommand, r.hasCommand = cmd, true
 	}
 	r.lastAt, r.lastInput, r.lastDecision = now, in, d
@@ -123,7 +136,7 @@ func (r *Room) noteObserved(obs PumpState, now time.Time) bool {
 	external := r.hasPrevObs && !obs.Same(r.prevObs) &&
 		!(r.hasCommand && obs.Same(r.lastCommand))
 	if external {
-		r.lastChange = now
+		r.lastChange, r.lastPredict = now, 0
 		r.lastStep = 0
 	}
 	r.prevObs, r.hasPrevObs = obs, true

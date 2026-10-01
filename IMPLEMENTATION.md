@@ -8,8 +8,8 @@ tests (`go test ./...`) before the next one starts.
 - [x] **1. Scaffold**: Go module, directory layout, YAML dependency.
 - [x] **2. Control core** (`internal/control`), pure logic with no I/O:
   - generic types: fan speed ladder, modes, pump state, policy, tunables
-  - heating ladder: build it from the policy, locate the observed state on
-    it, apply policy fixes
+  - heating ladder: steps up and down through set temperature × fan along
+    a fan curve, apply policy fixes
   - estimator: time-based level and slope from samples
   - `Decide` plus per-room state (change tracking, dwell, reason)
   - unit tests, plus invariant tests over generated inputs

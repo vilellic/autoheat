@@ -52,10 +52,12 @@ func main() {
 }
 
 // summarise prints mean statistics over several seeds: changes per hour for
-// the whole run, and comfort once settled (the second half).
+// the whole run, comfort once settled (the second half), and the share of
+// heating time at each fan speed.
 func summarise(s sim.Scenario, first uint64, n int) {
 	var changes, rms, worst float64
-	var off, fanOnly time.Duration
+	var off, fanOnly, heat time.Duration
+	var fans [control.High + 1]time.Duration
 	for i := range n {
 		r := sim.Run(s, first+uint64(i))
 		changes += r.After(0).ChangesPerHour
@@ -64,9 +66,21 @@ func summarise(s sim.Scenario, first uint64, n int) {
 		worst = max(worst, late.MaxAbsError)
 		off += r.ModeTime(control.Off, 0)
 		fanOnly += r.ModeTime(control.FanOnly, 0)
+		heat += r.ModeTime(control.Heat, 0)
+		for f := range fans {
+			fans[f] += r.HeatFanTime(control.Fan(f), 0)
+		}
 	}
 	k := float64(n)
-	fmt.Printf("%-16s changes/h %.2f | settled: rms %.2f worst %.2f | off %5s fan_only %5s\n",
+	fmt.Printf("%-16s changes/h %.2f | settled: rms %.2f worst %.2f | off %5s fan_only %5s | heat fans %%",
 		s.Name, changes/k, rms/k, worst,
 		(off / time.Duration(n)).Round(time.Minute), (fanOnly / time.Duration(n)).Round(time.Minute))
+	for f, d := range fans {
+		share := 0.0
+		if heat > 0 {
+			share = 100 * float64(d) / float64(heat)
+		}
+		fmt.Printf(" %s %.0f", control.Fan(f), share)
+	}
+	fmt.Println()
 }

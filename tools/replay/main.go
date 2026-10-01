@@ -68,20 +68,12 @@ func main() {
 		if !c.hasV1 {
 			continue
 		}
-		lad := control.BuildLadder(c.in.Policy, p)
-		from, _ := lad.Fix(c.in.Observed)
+		from, _ := control.BuildLadder(c.in.Policy, p).Fix(c.in.Observed)
 		dir := func(to control.PumpState) int {
 			if to.Same(c.in.Observed) {
 				return 1
 			}
-			a, b := lad.Locate(from), lad.Locate(to)
-			switch {
-			case b > a:
-				return 2
-			case b < a:
-				return 0
-			}
-			return 1
+			return 1 + control.Direction(from, to)
 		}
 		d1, d2 := dir(c.v1), dir(d.Command)
 		matrix[d1][d2]++

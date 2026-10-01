@@ -44,8 +44,7 @@ func TestInvariants(t *testing.T) {
 				in.Target = 19 + rng.Float64()*5
 			}
 
-			lad := BuildLadder(in.Policy, p)
-			start, fixed := lad.Fix(in.Observed)
+			start, fixed := BuildLadder(in.Policy, p).Fix(in.Observed)
 			external := r.hasPrevObs && !in.Observed.Same(r.prevObs) &&
 				!(r.hasCommand && in.Observed.Same(r.lastCommand))
 			if external {
@@ -86,15 +85,18 @@ func TestInvariants(t *testing.T) {
 				fail("Changed flag wrong")
 			}
 			if moved := !c.Same(start); moved {
-				from, to := lad.Locate(start), lad.Locate(c)
-				shortcut := lad.IsIdle(from) != lad.IsIdle(to)
-				onLadder := start.Same(lad.Level(from, start))
+				dir := Direction(start, c)
+				if start.Mode == Heat && c.Mode == Heat &&
+					abs(c.SetTemp-start.SetTemp)+abs(int(c.Fan-start.Fan)) != 1 {
+					fail("heat step must change one of set temp and fan by one notch")
+				}
 				switch {
-				case shortcut:
-				case onLadder && to != from+1 && to != from-1:
-					fail("moved more than one step")
-				case !onLadder && (c.SetTemp-start.SetTemp)*int(c.Fan-start.Fan) < 0:
-					fail("set temp and fan moved in opposite directions")
+				case dir == 0:
+					fail("step neither up nor down")
+				case dir > 0 && d.Predicted >= -p.ColdBand:
+					fail("stepped up although not too cold")
+				case dir < 0 && d.Predicted <= p.WarmBand:
+					fail("stepped down although not too warm")
 				}
 				if !lastChange.IsZero() && now.Sub(lastChange) < p.UrgentDwell {
 					fail("stepped within dwell")
@@ -110,3 +112,5 @@ func TestInvariants(t *testing.T) {
 		}
 	}
 }
+
+func abs(v int) int { return max(v, -v) }

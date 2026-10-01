@@ -16,8 +16,13 @@ type harness struct {
 	in  Input
 }
 
+// newHarness uses a fan curve that keeps the fan at base below the max set
+// temperature, so most steps here are set temperature steps. The ladder's
+// shape is tested in ladder_test.go.
 func newHarness(t *testing.T, pump PumpState) *harness {
-	return &harness{t: t, p: DefaultParams(), now: t0, in: Input{
+	p := DefaultParams()
+	p.FanFrom = FanCurve{}
+	return &harness{t: t, p: p, now: t0, in: Input{
 		Target:   21.5,
 		RoomTemp: 21.5,
 		Observed: pump,
@@ -88,7 +93,65 @@ func TestUrgentDwellWhenFarFromTarget(t *testing.T) {
 	h.expect(d, heat(25, Low), "step up")
 }
 
-func TestFanGoesUpOnlyAtMaxSetTemp(t *testing.T) {
+func TestUrgentTrendNeedsNewEvidence(t *testing.T) {
+	// Near target but falling fast: the first step up is urgent.
+	h := newHarness(t, heat(23, Low))
+	h.history(func(m int) float64 { return 21.3 + 0.03*float64(m) })
+	first := h.call(0, 21.3)
+	h.expect(first, heat(24, Low), "step up")
+
+	// The fall eases, so the prediction is still urgent but no worse: the
+	// step taken is still acting on it, and a second one waits for the trend.
+	d := h.call(5*time.Minute, 21.4)
+	if d.Predicted > -h.p.UrgentError || d.Predicted < first.Predicted || d.Error <= -h.p.UrgentError {
+		t.Fatalf("setup: error %.2f predicted %.2f, first predicted %.2f", d.Error, d.Predicted, first.Predicted)
+	}
+	h.expect(d, heat(24, Low), "waiting")
+
+	// Falling faster than when the step was taken: urgent again.
+	d = h.call(5*time.Minute, 21.1)
+	if d.Predicted >= first.Predicted || d.Error <= -h.p.UrgentError {
+		t.Fatalf("setup: error %.2f predicted %.2f, first predicted %.2f", d.Error, d.Predicted, first.Predicted)
+	}
+	h.expect(d, heat(25, Low), "step up")
+}
+
+func TestFarTooWarmIsNotUrgentWithoutNewEvidence(t *testing.T) {
+	// Being cold is urgent by itself (TestUrgentDwellWhenFarFromTarget);
+	// being warm is not, as a slight overshoot is tolerated.
+	h := newHarness(t, heat(25, Low))
+	h.in.Policy.CanUseFan, h.in.Policy.CanSwitchOff = false, false
+	h.history(constant(22.1))
+	h.expect(h.call(0, 22.1), heat(24, Low), "step down")
+	h.expect(h.call(5*time.Minute, 22.1), heat(24, Low), "waiting")
+}
+
+func TestStepsFollowFanCurve(t *testing.T) {
+	cases := []struct {
+		from, want PumpState
+		roomTemp   float64
+	}{
+		// Up along the ceiling...
+		{heat(22, Low), heat(23, Low), 21.1},
+		{heat(23, Low), heat(23, Medium), 21.1},
+		{heat(23, Medium), heat(24, Medium), 21.1},
+		{heat(24, Low), heat(24, Medium), 21.1},
+		// ...and down along the base fan.
+		{heat(24, Medium), heat(24, Low), 21.9},
+		{heat(24, Low), heat(23, Low), 21.9},
+	}
+	for _, c := range cases {
+		h := newHarness(t, c.from)
+		h.p.FanFrom = FanCurve{Medium: 23, MediumHigh: 26}
+		h.history(constant(c.roomTemp))
+		d := h.call(0, c.roomTemp)
+		if d.Command != c.want {
+			t.Errorf("from %v at %.1f: %v, want %v (%s)", c.from, c.roomTemp, d.Command, c.want, d.Reason)
+		}
+	}
+}
+
+func TestFanGoesUpAtMaxSetTemp(t *testing.T) {
 	h := newHarness(t, heat(26, Low))
 	h.history(constant(21.1))
 	h.expect(h.call(0, 21.1), heat(26, Medium), "step up")
@@ -133,6 +196,15 @@ func TestResumeFromIdle(t *testing.T) {
 	h := newHarness(t, PumpState{Mode: FanOnly, SetTemp: 20, Fan: Medium})
 	h.history(constant(21.1))
 	h.expect(h.call(0, 21.1), heat(23, Low), "resume heating")
+}
+
+func TestStepAfterResumeWaitsOnlyDwell(t *testing.T) {
+	h := newHarness(t, PumpState{Mode: FanOnly, SetTemp: 20, Fan: Medium})
+	h.history(constant(21.1))
+	h.expect(h.call(0, 21.1), heat(23, Low), "resume heating")
+	// Still too cold, not urgent: the next step comes after the dwell.
+	h.expect(h.call(10*time.Minute, 21.1), heat(23, Low), "waiting 5m0s")
+	h.expect(h.call(5*time.Minute, 21.1), heat(24, Low), "step up")
 }
 
 func TestTrendPreventsPush(t *testing.T) {
