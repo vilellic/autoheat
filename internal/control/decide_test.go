@@ -93,6 +93,39 @@ func TestUrgentDwellWhenFarFromTarget(t *testing.T) {
 	h.expect(d, heat(25, Low), "step up")
 }
 
+func TestUrgentTrendNeedsNewEvidence(t *testing.T) {
+	// Near target but falling fast: the first step up is urgent.
+	h := newHarness(t, heat(23, Low))
+	h.history(func(m int) float64 { return 21.3 + 0.03*float64(m) })
+	first := h.call(0, 21.3)
+	h.expect(first, heat(24, Low), "step up")
+
+	// The fall eases, so the prediction is still urgent but no worse: the
+	// step taken is still acting on it, and a second one waits for the trend.
+	d := h.call(5*time.Minute, 21.4)
+	if d.Predicted > -h.p.UrgentError || d.Predicted < first.Predicted || d.Error <= -h.p.UrgentError {
+		t.Fatalf("setup: error %.2f predicted %.2f, first predicted %.2f", d.Error, d.Predicted, first.Predicted)
+	}
+	h.expect(d, heat(24, Low), "waiting")
+
+	// Falling faster than when the step was taken: urgent again.
+	d = h.call(5*time.Minute, 21.1)
+	if d.Predicted >= first.Predicted || d.Error <= -h.p.UrgentError {
+		t.Fatalf("setup: error %.2f predicted %.2f, first predicted %.2f", d.Error, d.Predicted, first.Predicted)
+	}
+	h.expect(d, heat(25, Low), "step up")
+}
+
+func TestFarTooWarmIsNotUrgentWithoutNewEvidence(t *testing.T) {
+	// Being cold is urgent by itself (TestUrgentDwellWhenFarFromTarget);
+	// being warm is not, as a slight overshoot is tolerated.
+	h := newHarness(t, heat(25, Low))
+	h.in.Policy.CanUseFan, h.in.Policy.CanSwitchOff = false, false
+	h.history(constant(22.1))
+	h.expect(h.call(0, 22.1), heat(24, Low), "step down")
+	h.expect(h.call(5*time.Minute, 22.1), heat(24, Low), "waiting")
+}
+
 func TestStepsFollowFanCurve(t *testing.T) {
 	cases := []struct {
 		from, want PumpState

@@ -10,7 +10,8 @@ defaults:
   warmBand: 0.3          # °C above target (predicted) before stepping heat down
   idleBand: 0.5          # °C above target (now) to go straight to fan only / off
   dwellMinutes: 15       # minimum time between steps
-  urgentDwellMinutes: 5  # ...when the predicted error is at least urgentError
+  urgentDwellMinutes: 5  # ...when the predicted error is at least urgentError and
+                         #    the room is that cold, or the prediction got worse
   urgentError: 0.5
   resumeSetTemp: 23      # set temperature when heating resumes (kept within heatMin..heatMax)
   baseFan: low           # fan at the bottom, and where steps down bring it first

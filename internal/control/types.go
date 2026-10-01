@@ -141,7 +141,7 @@ type Params struct {
 	IdleBand       float64       // °C above target (actual) to jump straight to idle
 	Dwell          time.Duration // minimum time between steps
 	UrgentDwell    time.Duration // minimum time between steps when far from target
-	UrgentError    float64       // |predicted error| at which UrgentDwell applies
+	UrgentError    float64       // |predicted error| from which UrgentDwell may apply (see Decide)
 	ResumeSetTemp  int           // set temperature used when heating resumes from idle
 	BaseFan        Fan           // fan speed at the bottom of the ladder
 	CirculationFan Fan           // fan speed in fan-only mode

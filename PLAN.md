@@ -177,7 +177,15 @@ the zones, the direction check, velocity, and the dead band.
    - Take at most one step per `dwell` period, counted from the pump's last
      change (commanded, or observed from outside, such as by hand).
    - Use a shorter `urgentDwell` when `|ê|` is large (for example, the target
-     was just raised).
+     was just raised), and there is new evidence: the room is that cold now
+     (`e ≤ −urgentError`), or `ê` has got worse since the last change.
+     *Changed after the simulation:* with `|ê|` alone, a slope that the
+     pump had not yet answered kept `|ê|` large for several calls. Each
+     urgent step then went the same way before the room responded, sweeping
+     the whole ladder (e.g. 24/low → 26/high → 24/low about every 100 min
+     in `target-raised`). Requiring new evidence leaves one urgent step per
+     reading of the trend. Being too warm is not urgent by itself, because a
+     slight overshoot is tolerated (§5 of CORE.md).
    - **A further step in the same direction** waits a full estimate window
      (`window`), so the trend reflects the previous step before taking
      another. *Added after the simulation:* without it, the lag between pump

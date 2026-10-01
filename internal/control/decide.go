@@ -33,7 +33,8 @@ type Room struct {
 	hasPrevObs  bool
 	lastCommand PumpState
 	hasCommand  bool
-	lastStep    int // direction of the last ladder step: +1 up, -1 down, 0 none
+	lastStep    int     // direction of the last ladder step: +1 up, -1 down, 0 none
+	lastPredict float64 // predicted error when the pump last changed
 
 	lastAt       time.Time
 	lastInput    Input
@@ -83,9 +84,18 @@ func (r *Room) Decide(in Input, p Params, now time.Time) Decision {
 	if dir != 0 {
 		// A further step the same way waits until the whole estimate window
 		// comes after the last change, so the trend shows its effect.
+		//
+		// A large predicted error shortens the wait, but only on new
+		// evidence: the room is that cold now, or the prediction has got
+		// worse since the last change. Until the trend shows a step, the
+		// prediction still says what it said when the step was taken, and
+		// stepping on it again sweeps the whole ladder before the room
+		// responds.
+		urgent := math.Abs(pe) >= p.UrgentError &&
+			(e <= -p.UrgentError || float64(dir)*(r.lastPredict-pe) > 0)
 		dwell := p.Dwell
 		switch {
-		case math.Abs(pe) >= p.UrgentError:
+		case urgent:
 			dwell = p.UrgentDwell
 		case dir == r.lastStep:
 			dwell = max(p.Dwell, p.Window)
@@ -107,7 +117,7 @@ func (r *Room) Decide(in Input, p Params, now time.Time) Decision {
 		Predicted: pe,
 	}
 	if d.Changed {
-		r.lastChange = now
+		r.lastChange, r.lastPredict = now, pe
 		r.lastCommand, r.hasCommand = cmd, true
 	}
 	r.lastAt, r.lastInput, r.lastDecision = now, in, d
@@ -121,7 +131,7 @@ func (r *Room) noteObserved(obs PumpState, now time.Time) bool {
 	external := r.hasPrevObs && !obs.Same(r.prevObs) &&
 		!(r.hasCommand && obs.Same(r.lastCommand))
 	if external {
-		r.lastChange = now
+		r.lastChange, r.lastPredict = now, 0
 		r.lastStep = 0
 	}
 	r.prevObs, r.hasPrevObs = obs, true
